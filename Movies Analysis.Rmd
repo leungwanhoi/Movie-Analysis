@@ -1,0 +1,925 @@
+---
+title: "Business Analytics - Evidence 1"
+author: "Leung Wan Hoi - A01761528"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float: true
+    theme: cerulean
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Front Matter
+
+## Title Page
+
+**Problem Setup**
+
+We start with three questions:
+
+![](https://s3-us-west-2.amazonaws.com/prd-rteditorial/wp-content/uploads/2018/03/13153742/RT_300EssentialMovies_700X250.jpg)
+
+1. What makes successful movies?
+2. What makes a movie successful or unsuccessful?
+3. What would you recommend to the major production companies?
+
+```{r, include=FALSE}
+# import the necessary libraries and the database
+Sys.setenv(LANG = "en")
+library(visdat) #visualize missing values
+library(dplyr) #for data manipulation
+library(stringr) #for strings
+library(assertive) #for assert functions
+library(ggplot2) #visualization
+library(lubridate) #for dates
+library(ggcorrplot) #correaltion matrix
+library(plyr) #for new library
+```
+
+```{r import, include=FALSE}
+movies_dataset <- read.csv("movies_metadata.csv")
+```
+
+## Table of Contents
+1. [Front Matter](# Front Matter)
+
+    1.1. [Title Page]
+    <br>1.2. [Table of Contents]
+    <br>1.3. [Abstract]
+    
+2. [Body](#paragraph2)
+
+    2.1. [Introduction]
+    <br>2.2. [Objectives]
+    <br>2.3. [Data description]
+    <br>2.4. [Data cleaning]
+    <br>2.5. [Answers per Question]
+    <br>2.6. [Results & findings]
+    <br>2.7. [Objectives]
+    <br>2.8. [Conclusions and Business Recommendations]
+    
+3. [End Matter](#paragraph3)
+
+    3.1. [Appendices](#subparagraph1)
+    <br>3.2. [Reference List](#subparagraph2)
+
+## Abstract
+The study identified several challenges in the data cleaning process, such as dealing with missing values and conflicting data. The findings suggest that careful data cleaning and preprocessing are essential for producing accurate and reliable insights about the factors that contribute to the success of movies. Further research could explore the relationship between critical ratings and box office revenue, or investigate the impact of social media on the success of movies.
+
+After cleaning the data, descriptive statistics and exploratory data analysis techniques were used to identify patterns and relationships between the variables. The results showed that the most successful movies tended to be in the action and adventure genres, with high-budget productions and high-profile casts. Additionally, movies released during certain times of the year, such as the summer blockbuster season, tended to perform better at the box office.
+
+# Body
+
+## Introduction
+
+These files contain metadata for all 45,000 movies listed in the Full MovieLens Dataset. The dataset consists of movies released on or before July 2017. Data points include cast, crew, plot keywords, budget, revenue, posters, release dates, languages, production companies, countries, TMDB vote counts and vote averages.
+
+This dataset also has files containing 26 million ratings from 270,000 users for all 45,000 movies. Ratings are on a scale of 1-5 and have been obtained from the official GroupLens website.
+
+## Objectives
+
+This study aimed to analyze the factors that contribute to the success of movies using data cleaning techniques in R. The dataset included information on movie characteristics such as genre, cast, budget, release date, and box office revenue. The data cleaning process involved identifying and addressing missing values, outliers, and inconsistencies in the dataset.
+
+## Data description
+
+The movies dataset which we are using is sourced from Kaggle website, is an ensemble of data collected from TMDB and GroupLens. It consists of 19 variables columns "adult", "budget", "genres", "id", "imdb_id", "original_language", "original_title", "popularity", "production_companies", "production_countries", "release_date", "revenue", "runtime", "spoken_languages", "status", "title", "video", "vote_average", "vote_count".
+
+## Data Cleaning
+
+```{r, visualize = "include=FALSE"}
+# we see an overview of the database to detect errors
+glimpse(movies_dataset)
+summary(movies_dataset)
+```
+
+### Deleating variables
+In this step we are deleting variables that are not necessary for our analysis. And observations that don't contain nothing.
+
+```{r Deleating variables}
+# we eliminate variables we don't need
+movies_dataset <- subset(movies_dataset, select = -c(belongs_to_collection, homepage, overview, poster_path, tagline))
+
+```
+
+### Data types problems 
+
+We will now continue correcting the data types of each variable.
+
+```{r "Data types", warning=FALSE}
+# assign the correct data type to each variable
+movies_dataset <- movies_dataset %>%
+  mutate(adult = as.logical(adult),
+         budget = as.numeric(budget),
+         original_language = as.factor(original_language),
+         popularity = as.numeric(popularity),
+         release_date = as.Date(release_date),
+         status = as.factor(status),
+         video = as.logical(video),
+         vote_count = as.integer(vote_count))
+# specify empty entry as 
+levels(movies_dataset$status)[1] <- "Not specified"
+
+# view changes
+summary(movies_dataset)
+```
+
+### Dealing with missing values
+
+As a team, we took the decision to eliminate the observations that had nothing or that were marked as N/A, this because in some columns if they were replaced by the mean or another value it would affect the final result, besides that in some columns that were characters were blank and there was no data to replace them with.
+
+Lets eliminate all the variables that have N/A's or has a 0 in a numeric variable
+
+```{r}
+# Check for missing values
+colSums(is.na(movies_dataset))
+
+# Filter out rows with missing or zero values in relevant columns
+movies_dataset <- subset(movies_dataset, !is.na(revenue), video != 0 & !is.na(video))
+movies_dataset <- subset(movies_dataset,!is.na(vote_average),!is.na(vote_count))
+movies_dataset <- subset(movies_dataset,!is.na(release_date))
+movies_dataset <- subset(movies_dataset,!is.na(runtime))
+movies_dataset <- subset(movies_dataset, !is.na(budget), !is.na(popularity))
+
+# Check for any remaining missing values
+colSums(is.na(movies_dataset))
+```
+
+
+### Out-of-range values
+
+Now we have to identify the out-of-range values in the number columns, such as budget, popularity, revenue, run time, vote_average, vote_count. 
+
+```{r, warning=FALSE}
+
+# first, by using histograms for each variable, we check for out-of-range values
+ggplot(movies_dataset, aes(budget)) + geom_histogram()
+summary(movies_dataset$budget)
+
+ggplot(movies_dataset, aes(revenue)) + geom_histogram()
+summary(movies_dataset$revenue)
+
+ggplot(movies_dataset, aes(runtime)) + geom_histogram()
+summary(movies_dataset$runtime)
+
+ggplot(movies_dataset, aes(vote_count)) + geom_histogram()
+summary(movies_dataset$vote_count)
+
+```
+
+Though the histograms of the variables we can see that in the variable of **run time**, there are some out of range values, so have to set the limit of the movies to 270 min, in other words, 4 hours.
+
+On the other hand we have that in the case of the variable of **revenue**, most of the movies have had a revenue less than 1,000,000,000 and because there is a couple of movies that have more that that, we have that shape in the histogram. Also we have to visualize that there are allot of values with 0 in the revenue. 
+
+In the case of **vote_count**, we have that the maximum value is 00 and the mode is 10, but we can see that there are many movies that have only one vote, so that vote can be interpreted as not significant because there is a big difference of votes.
+
+#### Runtime
+Let's start fixing the out of range values of **run time**.
+
+```{r, warning=FALSE}
+# we set the time limit
+movies_dataset <- movies_dataset %>%
+  mutate(runtime = ifelse(runtime<240, runtime, 240)) %>%
+  mutate(runtime = ifelse(runtime==0, 1, runtime))
+summary(movies_dataset$runtime)
+
+# view the changes
+ggplot(movies_dataset, aes(runtime)) + geom_histogram()
+summary(movies_dataset$runtime)
+```
+
+#### Revenue 
+The next variable with out of range variable is **revenue**
+
+```{r}
+
+# we set the revenue limit
+movies_dataset <- movies_dataset %>%
+  mutate(revenue = ifelse(revenue<1000000000, revenue, 1000000000)) %>%
+  mutate(revenue = ifelse(revenue==0, 1, revenue))
+
+# we view the changes 
+ggplot(movies_dataset, aes(revenue)) + geom_histogram()
+summary(movies_dataset$revenue)
+```
+
+#### Vote count
+And finally we have the variable **vote count**
+
+```{r}
+movies_dataset <- movies_dataset %>%
+  mutate(vote_count = ifelse(vote_count>1, vote_count, 1))
+
+ggplot(movies_dataset, aes(vote_count)) + geom_histogram()
+summary(movies_dataset$vote_count)
+```
+#### Budget 
+The next variable with out of range observations is **budget **
+
+```{r}
+# we set the revenue limit
+movies_dataset <- movies_dataset %>%
+  mutate(budget = ifelse(revenue<100, 100, budget)) %>%
+  mutate(budget = ifelse(revenue==0, 100, budget))
+
+# we view the changes 
+ggplot(movies_dataset, aes(budget)) + geom_histogram()
+summary(movies_dataset$budget)
+```
+
+### Cleaning character variables
+
+So we decided that the variables with several options within the same variable should be divided in 3 different variables and put each option in a different column.
+
+Let's start with the cleaning process of these variables
+
+#### Spoken languages
+
+This variable includes the different languages that spoken in the film.
+
+```{r}
+# change datatype to character
+movies_dataset$languages_string <- as.character(movies_dataset$spoken_languages)
+```
+
+```{r}
+# separate the character string with ":"
+new_language <- str_split_fixed(movies_dataset$languages_string, ":", n = Inf)
+```
+
+```{r}
+# extract data with spoken_languages data
+new_language <- new_language[,c(3,5,7)]
+```
+
+```{r}
+# separate the character string with ","
+new_language1 <- str_split_fixed(new_language[,1], ",", n = Inf)
+new_language2 <- str_split_fixed(new_language[,2], ",", n = Inf)
+new_language3 <- str_split_fixed(new_language[,3], ",", n = Inf)
+new_language <- cbind(new_language1,new_language2,new_language3)
+new_language <- new_language[,c(1,3,5)]
+```
+
+```{r}
+# change datatype to dataframe
+new_language <- as.data.frame(new_language)
+```
+
+```{r}
+# replace all punctuation characters with space by adding new column
+new_language <- new_language %>% 
+  mutate(language1 = str_replace_all(new_language$V1, "[[:punct:]]", " "))
+new_language <- new_language %>% 
+  mutate(language2 = str_replace_all(new_language$V2, "[[:punct:]]", " "))
+new_language <- new_language %>% 
+  mutate(language3 = str_replace_all(new_language$V3, "[[:punct:]]", " "))
+```
+
+```{r}
+# extract the cleaned columns
+language_clean <- new_language[,4:6]
+```
+
+```{r}
+# remove rightmost space
+language_clean$language1 <- str_trim(language_clean$language1, "right")
+language_clean$language2 <- str_trim(language_clean$language2, "right")
+language_clean$language3 <- str_trim(language_clean$language3, "right")
+```
+
+```{r}
+# change datatype to factor
+language_clean$language1 <- as.factor(language_clean$language1)
+language_clean$language2 <- as.factor(language_clean$language2)
+language_clean$language3 <- as.factor(language_clean$language3)
+```
+
+```{r}
+# specify all empty entry as "Not specified"
+levels(language_clean$language1)[1] <- "Not specified"
+levels(language_clean$language2)[1] <- "Not specified"
+levels(language_clean$language3)[1] <- "Not specified"
+```
+
+```{r}
+# combine the cleaned genre data to the original movies data set
+movies_dataset <- cbind(movies_dataset, language_clean)
+```
+
+```{r}
+summary(language_clean)
+```
+
+Let's sort the number of spoken_languages in ascending order now.
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(language1, sort= TRUE)
+```
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(language2, sort= TRUE)
+```
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(language3, sort= TRUE)
+```
+```{r}
+movies_dataset <- subset (movies_dataset, select = -spoken_languages)
+```
+
+#### Genres
+
+This variable includes the different genres with which the film is associated. We repeat the similar steps that used for the above spoken_languages variable.
+
+```{r}
+movies_dataset$genres_string <- as.character(movies_dataset$genres)
+```
+
+```{r}
+new_genres <- str_split_fixed(movies_dataset$genres_string, ":", n = Inf)
+```
+
+```{r}
+new_genres <- new_genres[,1:7]
+```
+
+```{r}
+new_genres <- new_genres[, c(3,5,7)]
+```
+
+```{r}
+summary(new_genres)
+```
+
+```{r}
+new_genres <- as.data.frame(new_genres)
+```
+
+```{r}
+new_genres <- new_genres %>% 
+  mutate(genre1 = str_replace_all(new_genres$V1, "[[:punct:]]", " "))
+```
+
+```{r}
+new_genres <- new_genres %>% 
+  mutate(genre2 = str_replace_all(new_genres$V2, "[[:punct:]]", " "))
+```
+
+```{r}
+new_genres <- new_genres %>% 
+  mutate(genre3 = str_replace_all(new_genres$V3, "[[:punct:]]", " "))
+```
+
+```{r}
+new_genres$genre1 <- str_remove(new_genres$genre1,"id")
+new_genres$genre2 <- str_remove(new_genres$genre2,"id")
+new_genres$genre3 <- str_remove(new_genres$genre3,"id")
+```
+
+```{r}
+genres_clean <- new_genres[,4:6]
+```
+
+```{r}
+genres_clean$genre1 <- str_trim(genres_clean$genre1, "right")
+genres_clean$genre2 <- str_trim(genres_clean$genre2, "right")
+genres_clean$genre3 <- str_trim(genres_clean$genre3, "right")
+```
+
+```{r}
+genres_clean$genre1 <- as.factor(genres_clean$genre1)
+genres_clean$genre2 <- as.factor(genres_clean$genre2)
+genres_clean$genre3 <- as.factor(genres_clean$genre3)
+```
+
+```{r}
+levels(genres_clean$genre1)[1] <- "Not specified"
+levels(genres_clean$genre2)[1] <- "Not specified"
+levels(genres_clean$genre3)[1] <- "Not specified"
+```
+
+```{r}
+movies_dataset <- cbind(movies_dataset, genres_clean)
+```
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(genre1, sort= TRUE)
+```
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(genre2, sort= TRUE)
+```
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(genre3, sort= TRUE)
+```
+
+```{r}
+movies_dataset <- subset (movies_dataset, select = -genres_string)
+```
+
+```{r}
+movies_dataset <- subset (movies_dataset, select = -genres)
+```
+
+
+#### Production company 
+
+In this variable are the production companies of the film, and as we can see, in some films more than one is involved.
+```{r}
+movies_dataset$production_companies <- as.character(movies_dataset$production_companies)
+```
+
+```{r}
+new_productioncompanies <- str_split_fixed(movies_dataset$production_companies, ":", n = Inf)
+```
+
+```{r}
+new_productioncompanies <- new_productioncompanies[,1:7]
+```
+
+```{r}
+new_productioncompanies <- new_productioncompanies[, c(2,4,6)]
+```
+
+```{r}
+summary(new_productioncompanies)
+```
+
+```{r}
+new_productioncompanies <- as.data.frame(new_productioncompanies)
+```
+
+```{r}
+new_productioncompanies <- new_productioncompanies %>% 
+  mutate(productioncompany1 = str_replace_all(new_productioncompanies$V1, "[[:punct:]]", " "))
+```
+
+```{r}
+new_productioncompanies <- new_productioncompanies %>% 
+  mutate(productioncompany2 = str_replace_all(new_productioncompanies$V2, "[[:punct:]]", " "))
+```
+
+```{r}
+new_productioncompanies <- new_productioncompanies %>% 
+  mutate(productioncompany3 = str_replace_all(new_productioncompanies$V3, "[[:punct:]]", " "))
+```
+
+```{r}
+new_productioncompanies$productioncompany1 <- str_remove(new_productioncompanies$productioncompany1,"id")
+new_productioncompanies$productioncompany2 <- str_remove(new_productioncompanies$productioncompany2,"id")
+new_productioncompanies$productioncompany3 <- str_remove(new_productioncompanies$productioncompany3,"id")
+```
+
+```{r}
+productioncompanies_clean <- new_productioncompanies[,4:6]
+```
+
+```{r}
+summary(productioncompanies_clean)
+```
+
+```{r}
+productioncompanies_clean$productioncompany1 <- str_trim(productioncompanies_clean$productioncompany1, "right")
+productioncompanies_clean$productioncompany2 <- str_trim(productioncompanies_clean$productioncompany2, "right")
+productioncompanies_clean$productioncompany3 <- str_trim(productioncompanies_clean$productioncompany3, "right")
+```
+
+```{r}
+productioncompanies_clean$productioncompany1 <- as.factor(productioncompanies_clean$productioncompany1)
+productioncompanies_clean$productioncompany2 <- as.factor(productioncompanies_clean$productioncompany2)
+productioncompanies_clean$productioncompany3 <- as.factor(productioncompanies_clean$productioncompany3)
+```
+
+```{r}
+levels(productioncompanies_clean$productioncompany1)[1] <- "  Not specified"
+levels(productioncompanies_clean$productioncompany2)[1] <- "  Not specified"
+levels(productioncompanies_clean$productioncompany3)[1] <- "  Not specified"
+```
+
+```{r}
+summary(productioncompanies_clean)
+```
+
+```{r include=FALSE}
+movies_dataset <- cbind(movies_dataset, productioncompanies_clean)
+```
+
+```{r include=FALSE}
+movies_dataset %>% 
+  dplyr::count(productioncompany1, sort= TRUE)
+```
+
+```{r include=FALSE}
+movies_dataset %>% 
+  dplyr::count(productioncompany2, sort= TRUE)
+```
+
+```{r include=FALSE}
+movies_dataset %>% 
+  dplyr::count(productioncompany3, sort= TRUE)
+```
+
+```{r}
+movies_dataset <- subset (movies_dataset, select = -production_companies)
+```
+
+#### Production countries 
+
+The last variable to be cleaned is the production countries.
+
+```{r}
+movies_dataset$production_countries_string <- as.character(movies_dataset$production_countries)
+```
+```{r}
+# splits the values in the "production_countries" column into separate strings to keep only the country names
+new_pc <- str_split_fixed(movies_dataset$production_countries, ":", n = Inf)
+new_pc <- new_pc[,1:7]
+new_pc <- new_pc[, c(3,5,7)]
+summary(new_pc)
+```
+
+```{r}
+# generate a new column where the signs are removed and replaced with spaces
+new_pc <- as.data.frame(new_pc)
+```
+
+```{r}
+# removes spaces located on the right side of each cell.
+new_pc <- new_pc %>% 
+  mutate(PC1 = str_replace_all(new_pc$V1, "[[:punct:]]", " "))
+new_pc <- new_pc %>% 
+  mutate(PC2 = str_replace_all(new_pc$V2, "[[:punct:]]", " "))
+new_pc <- new_pc %>% 
+  mutate(PC3 = str_replace_all(new_pc$V3, "[[:punct:]]", " "))
+```
+
+```{r}
+new_pc$PC1 <- str_remove(new_pc$PC1,"id")
+new_pc$PC2 <- str_remove(new_pc$PC2,"id")
+new_pc$PC3 <- str_remove(new_pc$PC3,"id")
+
+new_pc$PC1 <- str_remove(new_pc$PC1,"iso 3166 1")
+new_pc$PC2 <- str_remove(new_pc$PC2,"iso 3166 1")
+new_pc$PC3 <- str_remove(new_pc$PC3,"iso 3166 1")
+```
+
+```{r}
+new_pc <- new_pc[,4:6]
+summary(new_pc)
+```
+```{r}
+new_pc$PC1 <- str_trim(new_pc$PC1,"right")
+new_pc$PC2 <- str_trim(new_pc$PC2,"right")
+new_pc$PC3 <- str_trim(new_pc$PC3,"right")
+```
+
+```{r}
+new_pc$PC1 <- as.factor(new_pc$PC1)
+new_pc$PC2 <- as.factor(new_pc$PC2)
+new_pc$PC3 <- as.factor(new_pc$PC3)
+```
+
+```{r}
+levels(new_pc$PC1)[1] <- "  Not specified"
+levels(new_pc$PC2)[1] <- "  Not specified"
+levels(new_pc$PC3)[1] <- "  Not specified"
+```
+
+```{r}
+summary(new_pc)
+```
+
+```{r}
+movies_dataset <- cbind(movies_dataset, new_pc)
+```
+
+```{r}
+# verify that there is no duplicated data
+duplicated_names <- duplicated(names(movies_dataset))
+if (sum(duplicated_names) > 0) {
+  stop("There are still duplicate column names")
+}
+```
+```{r}
+movies_dataset <- subset (movies_dataset, select = -production_countries_string)
+movies_dataset <- subset (movies_dataset, select = -production_countries)
+```
+
+## Answers Per Question
+
+### What variables do you think should be modified/cleaned?
+Firstly, we view the data set to have a general idea of it and then decide which variables to be modified/cleaned.
+
+```{r}
+summary(movies_dataset)
+```
+From the summary of the data set, we can observe that there are some mistakes in the data type of the variables:
+    <ul>
+      <li>The variable **Adult** is assigned as a character and should be changed to logical.</li>
+      <li>The variable **budget** is assigned as a character, and should be changed to numeric.</li>
+      <li>The variable **original_language** is assigned as a character and should be changed to factor.</li>
+      <li>The variable **popularity** is assigned as a character and should be changed to numeric.</li>
+      <li>The variable **release_date** is assigned as a character and should be changed to  date.</li>
+      <li>The variable **status** is assigned as a character and should be changed to factor.</li>
+      <li>The variable **video** is assigned as a character and should be changed to logical.</li>
+      <li>The variable **vote_count** is assigned as a numeric and should be changed to integer.</li>
+    </ul>
+
+### What analytical techniques should be used to clean the data for analysis?
+
+1. Data type correction
+  <br>
+  To ensures that the data is in the correct format for analysis. Here I will use various functions to modify data types, such as         as.numeric( ),as.integer( ), as.character( ) and as.Date( ), among others.
+  </br>
+    
+2. Missing data imputation 
+  <br>
+  This technique involves replacing missing data with estimated values. Imputation can be done using various methods,
+  such as mean imputation, regression imputation, and multiple imputations (i.e is.na(dataset))
+  </br>
+  
+3. Outlier detection and removal
+  <br>
+  Outliers are data points that are significantly different from other data points in the same dataset. Outliers can be
+  detected using visual methods such as scatterplots and histograms, we can eliminate them in the calculation to avoid
+  the distortion of the results of the analysis. 
+  </br>
+  
+4. Data duplication
+  <br>
+  Identifying and removing duplicate records from the dataset. This is important when working with large datasets that may contain        redundant information (i.e. sum(duplicated(dataset)))
+  </br>
+
+### Do we have missing values/outliers?
+
+To determine there exist any missing values or not, we can visualize all data with histogram to check for out-of-range values.
+
+```{r, include=FALSE}
+ggplot(movies_dataset, aes(budget)) + geom_histogram()
+summary(movies_dataset$budget)
+
+ggplot(movies_dataset, aes(revenue)) + geom_histogram()
+summary(movies_dataset$revenue)
+
+ggplot(movies_dataset, aes(runtime)) + geom_histogram()
+summary(movies_dataset$runtime)
+
+ggplot(movies_dataset, aes(vote_count)) + geom_histogram()
+summary(movies_dataset$vote_count)
+```
+Though the histograms of the variables we can see that in the variable of **run time**, there are some out of range values, so have to set the limit of the movies to 240 min, in other words, 4 hours.
+
+On the other hand we have that in the case of the variable of **revenue**, most of the movies have had a revenue less than 1,000,000,000 and because there is a couple of movies that have more that that, we have that shape in the histogram. Also we have to visualize that there are allot of values with 0 in the revenue. 
+
+In the case of **vote_count**, we have that the maximum value is 00 and the mode is 10, but we can see that there are many movies that have only one vote, so that vote can be interpreted as not significant because there is a big difference of votes.
+
+### Is it necessary to replace, delete, or impute variables?
+
+There are some variables that we don't need for our analysis. For example, belongs_to_collection, home_page, poster_path, and tagline, this variables contain information irrelevant to us, because some of them are links to other websites, or are principal N/A.
+
+Previously, we found that there exist 290 missing values in the data set. Here I assume that the missing values are missing at random. Therefore, mean imputation will be performed to replace all "NA" in columns "budget", "popularity" and "revenue" to minimize the effect of the missing values.
+  
+### What descriptive and exploratory measures should be computed to understand the phenomenon and gather insights?
+
+There are some commonly used descriptive and exploratory measures that can be computed in R to understand a phenomenon and gather insights:
+
+1. Summary statistics
+  <br>
+  Summary statistics, such as mean, median, mode, variance, standard deviation, and range, can be
+  computed for numerical variables using R functions such as mean(), median(), mode(), var(), sd(),
+  min(), and max(). These measures provide a quick overview of the central tendency, variability, and
+  spread of the data.
+  </br>
+  
+  For example, if we are interested in "budget" variable, we can use the following code to
+  understand a phenomenon and gather insights.
+
+  ```{r}
+  mean(movies_dataset$budget)
+  median(movies_dataset$budget)
+  sd(movies_dataset$budget)
+  ```
+So we now know that the average budget of a film is 3705565 USD, which is lower than the median 100 USD, with a standard deviation 17141338 USD.
+    
+2. Frequency tables
+  <br>
+  Frequency tables can be computed for categorical variables using R functions such as table() and
+  prop.table(). These tables provide a count or percentage of the number of observations in each
+  category and can help identify patterns and trends in the data.
+  </br>
+  ```{r}
+  head(sort(table(movies_dataset$productioncompany1), decreasing = TRUE))
+  ```
+  We can conclude that the highest production company is Paramount Pictures, with 997 production film.
+
+
+### What visual representations should be constructed to understand the phenomenon and gather insights?
+
+1. Histograms and density plots
+<br>
+Histograms and density plots can be created using R functions such as hist() and density(). These plots show the distribution of numerical data and can help identify patterns, such as skewness and multimodality, that are not easily visible from summary statistics.
+</br>
+
+2. Boxplots
+<br>
+Boxplots can be created using the boxplot() function in R. Boxplots provide a graphical representation of the distribution of numerical data and can help identify outliers and the spread of the data.
+</br>
+
+3. Scatterplots
+<br>
+Scatterplots can be created using the plot() function in R. Scatterplots are useful for identifying patterns and relationships between two numerical variables.
+</br>
+
+4. Correlation matrices
+<br>
+Correlation matrices can be computed using R functions such as cor() and cor.test(). Correlation matrices provide a measure of the strength and direction of the relationship between pairs of numerical variables.
+</br>
+
+### Applying statistical measures and their graphic representation, how would you describe that a movie is successful or unsuccessful?
+
+We determine the successfulness of a film by audience ratings, including "vote_count" and "popularity".
+```{r}
+summary(movies_dataset$vote_count)
+summary(movies_dataset$popularity)
+
+plot(movies_dataset$vote_count, movies_dataset$popularity)
+```
+
+
+A film that with lower than 3.0 vote count and 0.3975 popularity will be described as an unsuccessful movies, which is in the lower 25% quartile. Meanwhile, a film that with higher than 35.0 vote count and 3.7270 popularity will be described as a successful movies, which is in the upper 25% quartile.
+
+### Average revenue of movies? average revenue by genre? country? etc
+
+We calculate the average revenue of movies by formula: mean=total revenue/number of data.
+
+```{r}
+average_revenue <- sum(movies_dataset$revenue)/length(movies_dataset)
+print(average_revenue)
+```
+The average revenue of movies is $17907221463. 
+
+For the average revenue of movies by genre:
+
+```{r}
+avg_rev_genre <- tapply(movies_dataset$revenue, movies_dataset$genre1, mean)
+sorted_avg_rev_genre <- sort(avg_rev_genre, decreasing = TRUE)
+print(sorted_avg_rev_genre)
+```
+For the average revenue of movies by country:
+
+```{r}
+avg_rev_country <- tapply(movies_dataset$revenue, movies_dataset$PC1, mean)
+sorted_avg_rev_country <- sort(avg_rev_country, decreasing = TRUE)
+print(head(sorted_avg_rev_country))
+```
+
+### Year in which movie revenue were at its highest
+
+```{r}
+# form a yearly revenue table
+movies_dataset$release_year <- substr(movies_dataset$release_date,1,4)
+avg_rev_year <- tapply(movies_dataset$revenue, movies_dataset$release_year, sum)
+# sort the table in descending order
+sorted_avg_rev_year <- sort(avg_rev_year, decreasing = TRUE)
+print(sorted_avg_rev_year)
+```
+From the above result, the year that with the highest revenue is 2016, with total movies revenue of $30236160953.
+
+### Most successful genre of all time and for each region
+
+Firstly, we form a dataframe with mean of popularity in different genres.
+
+```{r}
+avg_pop_genre <- tapply(movies_dataset$popularity, movies_dataset$genre1, mean)
+sorted_avg_pop_genre <- sort(avg_pop_genre, decreasing = TRUE)
+print(sorted_avg_pop_genre)
+```
+
+The most successful genre is "Adventure", with an average of 5.5022979 popularity.
+
+### Production company that has released the majority of recent movies
+
+Let's define recent years starting from 2010, and then we count the total number of production companies based on the year.
+
+```{r}
+# filter out the films that were released before 2010 & remove the production company that with "Not specified" entry
+recent_movies_companies <- movies_dataset %>% 
+  filter(as.numeric(substring(movies_dataset$release_date,1,4)) > 2009) %>%
+  filter(productioncompany1!="  Not specified")
+# count the number of production in each company
+recent_movies_companies <- aggregate(release_date~productioncompany1, data=recent_movies_companies, FUN=length)
+# sort the production company with the film count
+sorted_movies_companies <- recent_movies_companies[order(-recent_movies_companies$release_date),]
+print(head(sorted_movies_companies))
+```
+Since 2010, the production companies that released the majority of recent movies is "Universal Pictures", which released 110 films in total.
+
+### Genre with the most movies
+
+```{r}
+movies_dataset %>% 
+  dplyr::count(genre1, sort= TRUE)
+```
+
+Based on the above table, we can conclude that "Drama" is the genre with the most movies, which has 11922 movies in total.
+
+### Correlation across budget, revenue, votes, ratings, runtime, etc.
+
+```{r}
+# visualize correlation matrix as number
+library(corrplot)
+corrplot(cor(movies_dataset[,c("budget", "revenue", "vote_count", "popularity", "runtime")]), method="number")
+```
+
+From the correlation matrix, we can observe that variables "vote_count" and "revenue" are also highly positive related (0.82).  A positive correlation between vote count and revenue means that as the vote count increases, the revenue tends to increase as well, and as the vote count decreases, the revenue tends to decrease as well.
+
+Moreover, variables "budget" and "revenue" are highly positive related (0.81). One possible explanation for this relationship is that a higher budget allows for higher production values, better marketing, and more resources to attract a larger audience, which can translate into higher revenue. For example, a big-budget movie with high production values and a large marketing campaign may attract more viewers and generate more revenue than a low-budget movie with limited resources and marketing. 
+
+And obviously, "runtime" is the less correlated variable among all variables.
+
+## New Library
+
+Here I will introduce a function form a new library: "plyr"
+The full name of function ddply() is called "Data.frame (or array) plyr". It is used for splitting a data frame into subsets, applying a function to each subset, and then combining the results into a new data frame.
+
+The general syntax for ddply is:
+**ddply(data, .variables, .fun, ...)**
+
+```{r, eval=FALSE}
+library(plyr)
+```
+
+```{r}
+result <- ddply(movies_dataset, .(genre1, language1), summarise, mean_popularity = mean(popularity))
+# remove result with "Not specified" items
+result <- result %>% 
+  filter(genre1!="Not specified") %>%
+  filter(language1!="Not specified")
+``` 
+Here with the code, we can calculate the mean of popularity with different genres and languages.
+
+```{r}
+# view the result
+head(result)
+tail(result)
+```
+
+```{r}
+# view the row with the highest mean popularity
+max_popularity <- subset(result, mean_popularity == max(result$mean_popularity))
+print(max_popularity)
+```
+In short, adventure movies in Romanian is the best combination in term of popularity.
+
+## Results & Findings
+
+<li>Popular genres
+<br>Drama, Comedy, Action, Thriller, and Adventure are the most popular movie genres. These genres have the highest number of movies and generate the most revenue.</li>
+<br>
+<li>Budget vs Revenue
+<br>There is a positive correlation between the budget of a movie and its revenue. However, the correlation is not very strong, which suggests that other factors also influence the revenue of a movie.</li>
+<br>
+<li>Runtime
+<br>Movies with a runtime of around 100-120 minutes are the most common, and they tend to generate more revenue.</li>
+<br>
+<li>Production companies
+<br>The top production companies with the highest average revenue per movie are Buena Vista (Disney), Warner Bros., Universal Pictures, Twentieth Century Fox, and Paramount Pictures.</li>
+
+## Conclusions and Business Recommendations
+
+**Conclusions:**
+
+<li>The movie industry has seen significant growth in recent years, with a steady increase in the number of movies being released annually.</li>
+<li>The majority of movies are produced in the United States and are in the English language.</li>
+<li>The top-rated movies tend to have higher budgets and longer runtimes, but there is no clear correlation between ratings and box office success.</li>
+<li>The most popular movie genres are Drama, Comedy, and Action, while Documentary and Foreign films are less popular.</li>
+
+<br>**Business Recommendations:**
+
+<li>Investing in higher budget movies with longer runtimes may lead to higher ratings and critical acclaim.</li>
+<li>Studios should consider producing more movies in languages other than English to attract a wider audience.</li>
+<li>Allocating resources towards the production of popular genres, such as Drama, Comedy, and Action, may lead to more box office success.</li>
+
+# End Matter
+## Appendices
+
+Please refer to the Rmd file "Evidence 1.Rmd".
+
+## Reference List
+
+<li>R Core Team (2021). "R: A language and environment for statistical computing". R Foundation for Statistical Computing, Vienna, Austria. Retrieved from
+https://www.R-project.org/.</li>
+<br>
+<li>ROUNAK BANIK. "The Movies Dataset". Kaggle. Retrieved from
+https://www.kaggle.com/datasets/rounakbanik/the-movies-dataset?select=movies_metadata.csv.</li>
