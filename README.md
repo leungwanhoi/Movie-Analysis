@@ -1,4 +1,4 @@
-# Movie-Analysis
+# What Makes a Movie Successful : Using Business Analytics to Study Box Office Hits
 
 
 ## Abstract
